@@ -79,6 +79,7 @@ def shows():
 def search():
     search_query = request.args.get('search')
     search_query = search_query.replace(" ", "&")
+    search_query = search_query.replace("+", "&")
     shows = db.session.query(
         Show.id,
         Show.title,

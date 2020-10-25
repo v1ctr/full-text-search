@@ -83,3 +83,12 @@ Upgrading the Database
 ```bash
 flask db upgrade
 ```
+
+## Setup Client in Development Mode
+
+```bash
+cd client
+npm start
+```
+
+Open [http://localhost:3000/](http://localhost:3000/) to see the search bar.
