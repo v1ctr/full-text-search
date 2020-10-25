@@ -23,7 +23,7 @@ Enter your **password** for admin user.
 The list was published by Shivam Bansal on [kaggle.com](https://www.kaggle.com/shivamb/netflix-shows) and contains 6234 titles of Netflix Movies and TV Shows.
 
 ```SQL
-COPY show FROM '/data/netflix_titles.csv' CSV HEADER;
+COPY show (id, type, title, director, actors, country, date_added, release_year, rating, duration, listed_in, description) FROM '/data/netflix_titles.csv' CSV HEADER;
 >> COPY 6234
 ```
 

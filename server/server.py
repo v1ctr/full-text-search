@@ -1,5 +1,7 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.sql.expression import func
 from flask_migrate import Migrate
 
 app = Flask(__name__)
@@ -22,9 +24,35 @@ class Show(db.Model):
     duration = db.Column(db.String(10))
     listed_in = db.Column(db.Text)
     description = db.Column(db.Text)
+    tsv_searchable_text = db.Column(TSVECTOR)
+
+    __table_args__ = (db.Index('tsv_idx', 'tsv_searchable_text', postgresql_using = 'gin'),)
 
     def __repr__(self):
         return f'<Show {self.title}>'
+
+function_snippet = db.DDL("""
+    CREATE FUNCTION tsv_searchable_text_trigger() RETURNS trigger AS $$
+    begin
+    new.tsv_searchable_text :=
+        setweight(to_tsvector('pg_catalog.english', coalesce(new.title,'')), 'A') ||
+        setweight(to_tsvector('pg_catalog.english', coalesce(new.description,'')), 'B') ||
+        setweight(to_tsvector('pg_catalog.english', coalesce(new.director,'')), 'C') ||
+        setweight(to_tsvector('pg_catalog.english', coalesce(new.actors,'')), 'C');
+    return new;
+    end
+    $$ LANGUAGE plpgsql;
+""")
+    
+trigger_snippet = db.DDL("""
+    CREATE TRIGGER searchable_text_update BEFORE INSERT OR UPDATE
+    ON show
+    FOR EACH ROW EXECUTE PROCEDURE tsv_searchable_text_trigger();
+""")
+
+db.event.listen(Show.__table__, 'after_create', function_snippet.execute_if(dialect = 'postgresql'))
+db.event.listen(Show.__table__, 'after_create', trigger_snippet.execute_if(dialect = 'postgresql'))
+
 
 @app.route('/')
 def shows():
@@ -46,3 +74,32 @@ def shows():
             'description': show.description
         })
     return jsonify(data)
+
+@app.route('/search')
+def search():
+    search_query = request.args.get('search')
+    search_query = search_query.replace(" ", "&")
+    shows = db.session.query(
+        Show.id,
+        Show.title,
+        Show.description,
+        func.ts_rank_cd(Show.tsv_searchable_text, func.plainto_tsquery(search_query, postgresql_regconfig='english'), 32).label('rank')
+    ).filter(
+        Show.tsv_searchable_text.match(search_query, postgresql_regconfig='english')
+    ).order_by(db.text('rank DESC')).limit(10)
+
+    data = []
+    for show in shows:
+        data.append({
+            'id': show.id,
+            'title': show.title,
+            'description': show.description,
+            'rank': show.rank
+        })
+    return jsonify(data)
+
+@app.route('/create-tables')
+def create_tables():
+    db.drop_all()
+    db.create_all()
+    return {'success': True}
